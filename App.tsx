@@ -9,7 +9,7 @@ import Login from './pages/Login';
 import { ViewState, User, UserRole } from './types';
 import { auth, db } from './utils/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { AlertTriangle, LogOut, Clock, Menu } from 'lucide-react';
 
 // Inactivity configuration
@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [loading, setLoading] = useState(true);
+  const [sessionTerminated, setSessionTerminated] = useState(false);
   
   // Mobile Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -218,6 +219,34 @@ const App: React.FC = () => {
     };
   }, [currentUser, handleLogout]);
 
+  // --- Session Tracking Logic ---
+  const currentSessionIdRef = useRef<string>(Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const userRef = doc(db, 'users', currentUser.id);
+    
+    // 1. Write the current session ID to Firestore
+    updateDoc(userRef, { sessionId: currentSessionIdRef.current }).catch(e => {
+      console.warn("Failed to update session ID", e);
+    });
+
+    // 2. Listen for changes to the session ID
+    const unsubscribe = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.sessionId && data.sessionId !== currentSessionIdRef.current) {
+          // Another tab/browser has logged in!
+          console.log("Session terminated because account was accessed from another location.");
+          setSessionTerminated(true);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser?.id]);
+
   // Handle navigation change (close mobile menu)
   const handleNavigate = (view: ViewState) => {
     setCurrentView(view);
@@ -258,6 +287,29 @@ const App: React.FC = () => {
   // If not logged in, show Login page
   if (!currentUser) {
     return <Login onLogin={handleLogin} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />;
+  }
+
+  // If session is terminated due to another tab/browser
+  if (sessionTerminated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 max-w-md w-full border border-slate-200 dark:border-slate-800 text-center">
+          <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center text-red-600 dark:text-red-500 mx-auto mb-6">
+            <AlertTriangle size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Session Terminated</h2>
+          <p className="text-slate-600 dark:text-slate-400 mb-8">
+            You have been logged out of this tab because your account was accessed from another browser or tab.
+          </p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-colors"
+          >
+            Log In Again
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // If logged in, show main app layout

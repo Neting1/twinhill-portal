@@ -25,6 +25,7 @@ export interface User {
   joinedAt: string;
   avatarUrl?: string;
   docCount: number;
+  sessionId?: string;
 }
 
 export interface PayrollDocument {
