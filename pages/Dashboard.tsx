@@ -251,7 +251,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, currentUser }) => {
                             <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
                         </>
                     )}
-                    <span>{doc.uploadDate}</span>
+                    <span>{doc.payrollPeriod || 'Unknown Month'}</span>
                     <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
                     <span className="font-medium text-slate-700 dark:text-slate-300">{CURRENCY_SYMBOL}{doc.amount.toLocaleString()}</span>
                   </div>

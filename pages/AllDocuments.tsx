@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Download, FileText, Search, Eye, RefreshCw, CheckSquare, Square, CheckCircle2, X } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Search, Eye, RefreshCw, CheckSquare, Square, CheckCircle2, X, Folder, ChevronDown, ChevronRight } from 'lucide-react';
 import { CURRENCY_SYMBOL } from '../constants';
 import { DocStatus, DocType, User, UserRole, PayrollDocument } from '../types';
 import { db } from '../utils/firebase';
@@ -20,6 +20,19 @@ const AllDocuments: React.FC<AllDocumentsProps> = ({ onBack, currentUser }) => {
   // Bulk Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  
+  // Folder State
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
+
+  const toggleFolder = (folderId: string) => {
+      const newSet = new Set(openFolders);
+      if (newSet.has(folderId)) {
+          newSet.delete(folderId);
+      } else {
+          newSet.add(folderId);
+      }
+      setOpenFolders(newSet);
+  };
 
   useEffect(() => {
     fetchDocuments();
@@ -102,31 +115,42 @@ const AllDocuments: React.FC<AllDocumentsProps> = ({ onBack, currentUser }) => {
     return matchesSearch && matchesType && matchesStatus;
   });
 
-  // Group documents by month
-  const getMonthYear = (dateString: string) => {
-      try {
-          const date = new Date(dateString);
-          if (isNaN(date.getTime())) return 'Unknown Date';
-          return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      } catch {
-          return 'Unknown Date';
+  // Group documents by year
+  const getYearGroup = (doc: PayrollDocument) => {
+      if (doc.payrollPeriod) {
+          const match = doc.payrollPeriod.match(/\d{4}/);
+          if (match) return `Year ${match[0]}`;
       }
+      try {
+          const date = new Date(doc.uploadDate);
+          if (!isNaN(date.getTime())) return `Year ${date.getFullYear()}`;
+      } catch {
+          return 'Unknown Year';
+      }
+      return 'Unknown Year';
   };
 
   const groupedDocs = filteredDocs.reduce((acc, doc) => {
-      const monthYear = getMonthYear(doc.uploadDate);
-      if (!acc[monthYear]) {
-          acc[monthYear] = [];
+      const yearGroup = getYearGroup(doc);
+      const employeeName = doc.employeeName || 'Unknown Employee';
+      
+      if (!acc[yearGroup]) {
+          acc[yearGroup] = {};
       }
-      acc[monthYear].push(doc);
+      if (!acc[yearGroup][employeeName]) {
+          acc[yearGroup][employeeName] = [];
+      }
+      acc[yearGroup][employeeName].push(doc);
       return acc;
-  }, {} as Record<string, PayrollDocument[]>);
+  }, {} as Record<string, Record<string, PayrollDocument[]>>);
 
-  // Sort groups by date descending
-  const sortedMonths = Object.keys(groupedDocs).sort((a, b) => {
-      if (a === 'Unknown Date') return 1;
-      if (b === 'Unknown Date') return -1;
-      return new Date(b).getTime() - new Date(a).getTime();
+  // Sort groups by year descending
+  const sortedYears = Object.keys(groupedDocs).sort((a, b) => {
+      if (a === 'Unknown Year') return 1;
+      if (b === 'Unknown Year') return -1;
+      const yearA = parseInt(a.replace('Year ', '')) || 0;
+      const yearB = parseInt(b.replace('Year ', '')) || 0;
+      return yearB - yearA;
   });
 
   // --- Bulk Action Logic ---
@@ -372,96 +396,122 @@ const AllDocuments: React.FC<AllDocumentsProps> = ({ onBack, currentUser }) => {
             </div>
         ) : (
         <div className="space-y-8">
-        {sortedMonths.map(month => (
-            <div key={month} className="space-y-4">
-                <h4 className="text-lg font-bold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">{month}</h4>
+        {sortedYears.map(yearGroup => (
+            <div key={yearGroup} className="space-y-4">
+                <h4 className="text-lg font-bold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">{yearGroup}</h4>
                 <div className="space-y-4">
-                {groupedDocs[month].map((doc) => {
-                    const isSelected = selectedIds.has(doc.id);
+                {Object.keys(groupedDocs[yearGroup]).sort().map(employeeName => {
+                    const folderId = `${yearGroup}-${employeeName}`;
+                    const isOpen = openFolders.has(folderId);
+                    const docs = groupedDocs[yearGroup][employeeName];
+                    
                     return (
-                        <div 
-                            key={doc.id} 
-                            className={`flex flex-col lg:flex-row lg:items-center justify-between p-5 rounded-xl border transition-all gap-4 ${
-                                isSelected 
-                                ? 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800' 
-                                : 'bg-slate-50 dark:bg-slate-800/50 border-transparent hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/50 dark:hover:bg-blue-900/20'
-                            }`}
-                        >
-                        <div className="flex items-start gap-4">
-                            {/* Checkbox */}
+                        <div key={folderId} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
                             <button 
-                                onClick={() => toggleSelectOne(doc.id)}
-                                className="mt-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                onClick={() => toggleFolder(folderId)}
+                                className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                             >
-                                {isSelected ? (
-                                    <CheckSquare size={24} className="text-blue-600 dark:text-blue-400" />
-                                ) : (
-                                    <Square size={24} />
-                                )}
+                                <div className="flex items-center gap-3">
+                                    <Folder className="text-blue-500" size={20} />
+                                    <span className="font-bold text-slate-800 dark:text-slate-200">{employeeName}</span>
+                                    <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-full">{docs.length}</span>
+                                </div>
+                                {isOpen ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
                             </button>
-
-                            <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
-                            <FileText size={24} />
-                            </div>
-                            <div>
-                            <div className="flex flex-wrap items-center gap-3 mb-1">
-                                <h4 className="font-bold text-slate-900 dark:text-slate-200 text-lg line-clamp-1">{doc.title}</h4>
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                    doc.status === DocStatus.COMPLETE
-                                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
-                                        : doc.status === DocStatus.PROCESSED 
-                                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' 
-                                        : doc.status === DocStatus.PENDING 
-                                        ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
-                                        : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-                                    }`}>
-                                    {doc.status}
-                                </span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-                                {currentUser.role === UserRole.ADMIN && (
-                                    <>
-                                        <span className="font-bold text-blue-600 dark:text-blue-400">{doc.employeeName}</span>
-                                        <span className="hidden sm:inline">•</span>
-                                    </>
-                                )}
-                                <span className="font-medium text-slate-700 dark:text-slate-300">{doc.company}</span>
-                                <span className="hidden sm:inline">•</span>
-                                <span>{doc.employeeEmail}</span>
-                                <span className="hidden sm:inline">•</span>
-                                <span className="flex items-center gap-1">
-                                    <span className="text-slate-400 dark:text-slate-500">📅</span> {doc.uploadDate}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-3 mt-2 text-xs">
-                                <span className="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-1 rounded font-medium">{doc.type}</span>
-                                <span className="text-slate-400 dark:text-slate-500">{doc.payrollPeriod}</span>
-                            </div>
-                            </div>
-                        </div>
-                        
-                        <div className="flex items-center justify-between lg:justify-end gap-6 pl-16 lg:pl-0 mt-2 lg:mt-0">
-                            <div className="font-bold text-green-700 dark:text-green-400 text-lg">{CURRENCY_SYMBOL}{doc.amount.toLocaleString()}</div>
                             
-                            {doc.fileUrl ? (
-                                <a 
-                                    href={doc.fileUrl} 
-                                    onClick={() => handleDownload(doc)}
-                                    download={`${doc.title}.pdf`}
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 rounded-lg text-sm font-medium transition-colors shadow-sm shadow-blue-200 dark:shadow-none"
-                                >
-                                    <Download size={16} />
-                                    Download
-                                </a>
-                            ) : (
-                                <button disabled className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-lg text-sm font-medium cursor-not-allowed">
-                                    <Eye size={16} />
-                                    Preview
-                                </button>
+                            {isOpen && (
+                                <div className="p-4 bg-white dark:bg-slate-900 space-y-4 border-t border-slate-200 dark:border-slate-700">
+                                    {docs.map((doc) => {
+                                        const isSelected = selectedIds.has(doc.id);
+                                        return (
+                                            <div 
+                                                key={doc.id} 
+                                                className={`flex flex-col lg:flex-row lg:items-center justify-between p-5 rounded-xl border transition-all gap-4 ${
+                                                    isSelected 
+                                                    ? 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800' 
+                                                    : 'bg-slate-50 dark:bg-slate-800/50 border-transparent hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/50 dark:hover:bg-blue-900/20'
+                                                }`}
+                                            >
+                                            <div className="flex items-start gap-4">
+                                                {/* Checkbox */}
+                                                <button 
+                                                    onClick={() => toggleSelectOne(doc.id)}
+                                                    className="mt-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                                >
+                                                    {isSelected ? (
+                                                        <CheckSquare size={24} className="text-blue-600 dark:text-blue-400" />
+                                                    ) : (
+                                                        <Square size={24} />
+                                                    )}
+                                                </button>
+
+                                                <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
+                                                <FileText size={24} />
+                                                </div>
+                                                <div>
+                                                <div className="flex flex-wrap items-center gap-3 mb-1">
+                                                    <h4 className="font-bold text-slate-900 dark:text-slate-200 text-lg line-clamp-1">{doc.title}</h4>
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                                        doc.status === DocStatus.COMPLETE
+                                                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+                                                            : doc.status === DocStatus.PROCESSED 
+                                                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' 
+                                                            : doc.status === DocStatus.PENDING 
+                                                            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
+                                                            : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                                                        }`}>
+                                                        {doc.status}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+                                                    {currentUser.role === UserRole.ADMIN && (
+                                                        <>
+                                                            <span className="font-bold text-blue-600 dark:text-blue-400">{doc.employeeName}</span>
+                                                            <span className="hidden sm:inline">•</span>
+                                                        </>
+                                                    )}
+                                                    <span className="font-medium text-slate-700 dark:text-slate-300">{doc.company}</span>
+                                                    <span className="hidden sm:inline">•</span>
+                                                    <span>{doc.employeeEmail}</span>
+                                                    <span className="hidden sm:inline">•</span>
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="text-slate-400 dark:text-slate-500">📅</span> {doc.payrollPeriod || 'Unknown Month'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-3 mt-2 text-xs">
+                                                    <span className="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-1 rounded font-medium">{doc.type}</span>
+                                                    <span className="text-slate-400 dark:text-slate-500">Uploaded: {doc.uploadDate}</span>
+                                                </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="flex items-center justify-between lg:justify-end gap-6 pl-16 lg:pl-0 mt-2 lg:mt-0">
+                                                <div className="font-bold text-green-700 dark:text-green-400 text-lg">{CURRENCY_SYMBOL}{doc.amount.toLocaleString()}</div>
+                                                
+                                                {doc.fileUrl ? (
+                                                    <a 
+                                                        href={doc.fileUrl} 
+                                                        onClick={() => handleDownload(doc)}
+                                                        download={`${doc.title}.pdf`}
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 rounded-lg text-sm font-medium transition-colors shadow-sm shadow-blue-200 dark:shadow-none"
+                                                    >
+                                                        <Download size={16} />
+                                                        Download
+                                                    </a>
+                                                ) : (
+                                                    <button disabled className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-lg text-sm font-medium cursor-not-allowed">
+                                                        <Eye size={16} />
+                                                        Preview
+                                                    </button>
+                                                )}
+                                            </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             )}
-                        </div>
                         </div>
                     );
                 })}
